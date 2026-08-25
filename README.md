@@ -61,5 +61,3 @@ Pipe a Cloudflare logs response (the wrapper object with a `result` field) or a 
 ```sh
 cat logs.json | go run .
 ```
-
-For a self-hosted or test endpoint, use `--api-base`; it defaults to the documented Cloudflare API endpoint, `https://api.cloudflare.com/client/v4`.

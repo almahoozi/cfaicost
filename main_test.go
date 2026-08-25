@@ -51,7 +51,13 @@ func TestFetchLogsPaginatesAndAuthenticates(t *testing.T) {
 	}))
 	defer server.Close()
 
-	entries, _, err := fetchLogs(server.Client(), config{accountID: "account", gateway: "gateway", userID: "user", apiBase: server.URL, start: mustTime(t, "2026-08-24T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}, "secret")
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := server.Client()
+	client.Transport = rewriteTransport{target: target, base: client.Transport}
+	entries, _, err := fetchLogs(client, config{accountID: "account", gateway: "gateway", userID: "user", start: mustTime(t, "2026-08-24T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +112,7 @@ func TestFilterEntriesForUserOnlyFiltersMixedInput(t *testing.T) {
 }
 
 func TestLogsURLBuildsMetadataFilters(t *testing.T) {
-	cfg := config{accountID: "account", gateway: "gateway", userID: "user", apiBase: "https://example.test/api/v4", start: mustTime(t, "2026-08-24T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}
+	cfg := config{accountID: "account", gateway: "gateway", userID: "user", start: mustTime(t, "2026-08-24T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}
 	raw, err := logsURL(cfg, 3)
 	if err != nil {
 		t.Fatal(err)
@@ -115,9 +121,24 @@ func TestLogsURLBuildsMetadataFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Path != "/api/v4/accounts/account/ai-gateway/gateways/gateway/logs" || u.Query().Get("page") != "3" || !strings.Contains(u.Query().Get("filters"), `"cf.user_id"`) {
+	if u.Path != "/client/v4/accounts/account/ai-gateway/gateways/gateway/logs" || u.Query().Get("page") != "3" || !strings.Contains(u.Query().Get("filters"), `"cf.user_id"`) {
 		t.Fatalf("unexpected URL: %s", raw)
 	}
+}
+
+type rewriteTransport struct {
+	target *url.URL
+	base   http.RoundTripper
+}
+
+func (t rewriteTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	clone := request.Clone(request.Context())
+	clone.URL.Scheme = t.target.Scheme
+	clone.URL.Host = t.target.Host
+	if t.base == nil {
+		return http.DefaultTransport.RoundTrip(clone)
+	}
+	return t.base.RoundTrip(clone)
 }
 
 func mustTime(t *testing.T, value string) time.Time {

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	defaultAPIBase  = "https://api.cloudflare.com/client/v4"
-	defaultLookback = 30 * 24 * time.Hour
+	cloudflareAPIBase = "https://api.cloudflare.com/client/v4"
+	defaultLookback   = 30 * 24 * time.Hour
 )
 
 // LogEntry contains the fields from an AI Gateway log needed for the report.
@@ -98,7 +98,6 @@ type config struct {
 	userID       string
 	start        time.Time
 	end          time.Time
-	apiBase      string
 	daily        bool
 	allDaily     bool
 	showTokens   bool
@@ -433,7 +432,6 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.StringVar(&end, "end", "", "exclusive end time (RFC3339)")
 	fs.StringVar(&duration, "duration", "", "lookback duration (for example 7d or 168h)")
 	fs.StringVar(&duration, "d", "", "shorthand for --duration")
-	fs.StringVar(&cfg.apiBase, "api-base", defaultAPIBase, "Cloudflare API base URL")
 	fs.BoolVar(&cfg.daily, "daily", false, "include daily usage")
 	fs.BoolVar(&cfg.allDaily, "all", false, "include daily usage tables per model (requires --daily)")
 	fs.BoolVar(&cfg.showTokens, "tokens", false, "include token columns")
@@ -775,9 +773,9 @@ func filterEntriesForUser(entries []LogEntry, userID string) []LogEntry {
 }
 
 func logsURL(cfg config, page int) (string, error) {
-	base, err := url.Parse(strings.TrimRight(cfg.apiBase, "/"))
+	base, err := url.Parse(cloudflareAPIBase)
 	if err != nil {
-		return "", fmt.Errorf("invalid --api-base: %w", err)
+		return "", err
 	}
 	base.Path += "/accounts/" + url.PathEscape(cfg.accountID) + "/ai-gateway/gateways/" + url.PathEscape(cfg.gateway) + "/logs"
 	filters := []map[string]any{
@@ -820,7 +818,7 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 	}
 	fmt.Fprintf(&out, "- **Cost:** $%.6f\n", total.Cost)
 
-	fmt.Fprintln(&out, "\n## Requests by session & model")
+	fmt.Fprintln(&out, "\n## Overview")
 	showSession := hasSessionIDs(entries)
 	writeRequestHeader(&out, showSession, cfg.showTokens, cfg.showUA)
 	for _, group := range sessionModelGroups(entries, cfg.joinSessions) {
