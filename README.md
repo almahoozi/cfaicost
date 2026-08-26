@@ -53,6 +53,7 @@ go run . set-defaults --mode=base --join --daily
 - `--join` combines all provider/models used by each session into one row.
 - `--ua` adds the user-agent column.
 - `--raw` writes the Markdown source directly rather than rendering it through Glamour, suitable for redirecting to a file or sharing.
+- Dates and times use the local timezone by default; `--utc` displays them in UTC. It can also be saved with `set-defaults --utc`.
 
 ## Render saved JSON
 

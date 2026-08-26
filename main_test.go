@@ -10,6 +10,10 @@ import (
 )
 
 func TestReportOptionsControlDailyAndTokenOutput(t *testing.T) {
+	originalLocation := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocation }()
+
 	entries := []LogEntry{
 		{ID: "second", CreatedAt: mustTime(t, "2026-08-25T04:00:00Z"), Provider: "openai", Model: "gpt", Duration: 20, TokensIn: 20, TokensOut: 3, Cost: 0.2, Metadata: map[string]string{"x-session-id": "b"}},
 		{ID: "first", CreatedAt: mustTime(t, "2026-08-24T04:00:00Z"), Provider: "anthropic", Model: "claude", Duration: 10, TokensIn: 10, TokensOut: 2, Cost: 0.1, Metadata: map[string]string{"x-session-id": "a"}},
@@ -30,6 +34,33 @@ func TestReportOptionsControlDailyAndTokenOutput(t *testing.T) {
 		if !strings.Contains(detailedReport, want) {
 			t.Errorf("detailed report does not contain %q", want)
 		}
+	}
+}
+
+func TestReportUsesLocalTimeUnlessUTCIsRequested(t *testing.T) {
+	originalLocation := time.Local
+	time.Local = time.FixedZone("UTC-2", -2*60*60)
+	defer func() { time.Local = originalLocation }()
+
+	entries := []LogEntry{{ID: "one", CreatedAt: mustTime(t, "2026-08-24T00:30:00Z"), Metadata: map[string]string{"x-session-id": "session"}}}
+	localReport := report(entries, config{userID: "user", daily: true, start: mustTime(t, "2026-08-23T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}, false)
+	if !strings.Contains(localReport, "2026-08-23 22:30:00") || !strings.Contains(localReport, "| 2026-08-23 |") {
+		t.Fatalf("local report did not use local time:\n%s", localReport)
+	}
+
+	utcReport := report(entries, config{userID: "user", daily: true, utc: true, start: mustTime(t, "2026-08-23T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z")}, false)
+	if !strings.Contains(utcReport, "2026-08-24 00:30:00") || !strings.Contains(utcReport, "| 2026-08-24 |") {
+		t.Fatalf("UTC report did not use UTC:\n%s", utcReport)
+	}
+}
+
+func TestSetDefaultsAcceptsUTC(t *testing.T) {
+	defaults, err := parseDefaultSettings([]string{"--utc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !defaults.UTC {
+		t.Fatal("UTC default was not enabled")
 	}
 }
 

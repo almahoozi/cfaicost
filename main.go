@@ -83,6 +83,7 @@ type defaultSettings struct {
 	UA     bool   `json:"ua,omitempty"`
 	Join   bool   `json:"join,omitempty"`
 	Raw    bool   `json:"raw,omitempty"`
+	UTC    bool   `json:"utc,omitempty"`
 }
 
 type savedConfig struct {
@@ -105,6 +106,7 @@ type config struct {
 	joinSessions bool
 	force        bool
 	raw          bool
+	utc          bool
 	durationSet  bool
 	fetchLatency time.Duration
 	fetched      bool
@@ -265,6 +267,7 @@ func parseDefaultSettings(args []string) (defaultSettings, error) {
 	fs.BoolVar(&defaults.UA, "ua", false, "include user-agent column")
 	fs.BoolVar(&defaults.Join, "join", false, "combine models used in a session")
 	fs.BoolVar(&defaults.Raw, "raw", false, "write raw Markdown")
+	fs.BoolVar(&defaults.UTC, "utc", false, "display dates and times in UTC")
 	if err := fs.Parse(args); err != nil {
 		return defaults, err
 	}
@@ -440,6 +443,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.force, "force", false, "refetch data instead of using cached days")
 	fs.BoolVar(&cfg.force, "f", false, "shorthand for --force")
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
+	fs.BoolVar(&cfg.utc, "utc", false, "display dates and times in UTC")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -511,6 +515,9 @@ func applyDefaults(cfg *config, defaults defaultSettings, explicit map[string]bo
 	}
 	if !explicit["raw"] {
 		cfg.raw = defaults.Raw
+	}
+	if !explicit["utc"] {
+		cfg.utc = defaults.UTC
 	}
 }
 
@@ -801,13 +808,17 @@ func logsURL(cfg config, page int) (string, error) {
 func report(entries []LogEntry, cfg config, piped bool) string {
 	var out bytes.Buffer
 	total := sum(entries)
+	location := time.Local
+	if cfg.utc {
+		location = time.UTC
+	}
 	start, end := cfg.start, cfg.end
 	if piped && !cfg.durationSet {
 		start, end = entryRange(entries)
 	}
 	fmt.Fprintln(&out, "# Cloudflare AI Gateway cost report")
 	fmt.Fprintln(&out, "\n## Summary")
-	fmt.Fprintf(&out, "- **User:** %s\n- **Date range:** %s\n- **Requests:** %d\n- **Sessions:** %d\n", cell(cfg.userID), formatDateRange(start, end), total.Requests, total.Sessions)
+	fmt.Fprintf(&out, "- **User:** %s\n- **Date range:** %s\n- **Requests:** %d\n- **Sessions:** %d\n", cell(cfg.userID), formatDateRange(start, end, location), total.Requests, total.Sessions)
 	if cfg.fetched {
 		fmt.Fprintf(&out, "- **Fetch latency:** %s\n", cfg.fetchLatency)
 	} else {
@@ -822,7 +833,7 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 	showSession := hasSessionIDs(entries)
 	writeRequestHeader(&out, showSession, cfg.showTokens, cfg.showUA)
 	for _, group := range sessionModelGroups(entries, cfg.joinSessions) {
-		writeRequestRow(&out, group, showSession, cfg.showTokens, cfg.showUA)
+		writeRequestRow(&out, group, showSession, cfg.showTokens, cfg.showUA, location)
 	}
 
 	fmt.Fprintln(&out, "\n## Totals by model")
@@ -833,7 +844,7 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 	if cfg.daily {
 		fmt.Fprintln(&out, "\n## Daily usage (all models)")
 		writeTotalsHeader(&out, "Date", cfg.showTokens)
-		writeTotals(&out, group(entries, func(e LogEntry) string { return e.CreatedAt.UTC().Format("2006-01-02") }), cfg.showTokens)
+		writeTotals(&out, group(entries, func(e LogEntry) string { return e.CreatedAt.In(location).Format("2006-01-02") }), cfg.showTokens)
 	}
 	if cfg.allDaily {
 		models := make([]string, 0, len(byModel))
@@ -845,7 +856,7 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 			modelEntries := filterModel(entries, model)
 			fmt.Fprintf(&out, "\n## Daily usage: %s\n", cell(model))
 			writeTotalsHeader(&out, "Date", cfg.showTokens)
-			writeTotals(&out, group(modelEntries, func(e LogEntry) string { return e.CreatedAt.UTC().Format("2006-01-02") }), cfg.showTokens)
+			writeTotals(&out, group(modelEntries, func(e LogEntry) string { return e.CreatedAt.In(location).Format("2006-01-02") }), cfg.showTokens)
 			writeTotalRow(&out, sum(modelEntries), cfg.showTokens)
 		}
 	}
@@ -872,8 +883,8 @@ func writeRequestHeader(out *bytes.Buffer, session, tokens, userAgent bool) {
 	fmt.Fprintf(out, "| %s |\n| %s |\n", strings.Join(headers, " | "), strings.Join(align, " | "))
 }
 
-func writeRequestRow(out *bytes.Buffer, group sessionModelGroup, session, tokens, userAgent bool) {
-	values := []string{formatPeriod(group.FirstSeen, group.LastSeen, time.Duration(group.Totals.Duration)*time.Millisecond), cell(group.Model), fmt.Sprint(group.Totals.Requests)}
+func writeRequestRow(out *bytes.Buffer, group sessionModelGroup, session, tokens, userAgent bool, location *time.Location) {
+	values := []string{formatPeriod(group.FirstSeen, group.LastSeen, time.Duration(group.Totals.Duration)*time.Millisecond, location), cell(group.Model), fmt.Sprint(group.Totals.Requests)}
 	if session {
 		values = append([]string{cell(group.SessionID)}, values...)
 	}
@@ -903,19 +914,19 @@ func writeTotalRow(out *bytes.Buffer, total totals, tokens bool) {
 	fmt.Fprintf(out, "| **Total** | **%d** | **%d** | **%.6f** |\n", total.Requests, total.Sessions, total.Cost)
 }
 
-func formatDateRange(start, end time.Time) string {
+func formatDateRange(start, end time.Time, location *time.Location) string {
 	if start.IsZero() || end.IsZero() {
 		return "n/a"
 	}
-	start, end = start.UTC(), end.UTC()
+	start, end = start.In(location), end.In(location)
 	if start.Format("2006-01-02") == end.Format("2006-01-02") {
 		return fmt.Sprintf("%s %s–%s", start.Format("2006-01-02"), start.Format("15:04:05"), end.Format("15:04:05"))
 	}
 	return fmt.Sprintf("%s %s–%s %s", start.Format("2006-01-02"), start.Format("15:04:05"), end.Format("2006-01-02"), end.Format("15:04:05"))
 }
 
-func formatPeriod(start, end time.Time, duration time.Duration) string {
-	return formatDateRange(start, end) + " (" + duration.String() + ")"
+func formatPeriod(start, end time.Time, duration time.Duration, location *time.Location) string {
+	return formatDateRange(start, end, location) + " (" + duration.String() + ")"
 }
 
 func entryRange(entries []LogEntry) (time.Time, time.Time) {
