@@ -45,12 +45,13 @@ go run . set-defaults
 go run . set-defaults --mode=base --join --daily
 ```
 
-`--mode`/`-m` accepts `default` (the default) or `base`, case-insensitively. `--force` never suppresses defaults.
+`--mode`/`-m` accepts `default` (the default) or `base`, case-insensitively. `--force` and `--session` never suppress defaults. Session filters cannot be saved with `set-defaults`.
 
 - `--daily` includes the all-model daily usage table.
 - `--daily --all` additionally includes one daily table per provider/model, with a totals footer.
 - `--tokens` adds input and output token columns; they are hidden by default.
 - `--join` combines all provider/models used by each session into one row.
+- `--session={sessionid}` shows only the specified session; the command errors if it is not found.
 - `--ua` adds the user-agent column.
 - `--column={label}:{metadata.key}` adds a metadata column to the overview table. The flag is repeatable; grouped rows show their distinct metadata values in sorted order. It can also be saved with `set-defaults`, for example `set-defaults --column=Region:cf.region`.
 - `--raw` writes the Markdown source directly rather than rendering it through Glamour, suitable for redirecting to a file or sharing.

@@ -131,6 +131,7 @@ type config struct {
 	showTokens   bool
 	showUA       bool
 	joinSessions bool
+	session      string
 	force        bool
 	raw          bool
 	utc          bool
@@ -204,6 +205,13 @@ func main() {
 
 	if piped && cfg.durationSet {
 		entries = filterEntriesByTime(entries, cfg.start, cfg.end)
+	}
+	if cfg.session != "" {
+		entries = filterEntriesForSession(entries, cfg.session)
+		if len(entries) == 0 {
+			fmt.Fprintf(os.Stderr, "error: session %q not found\n", cfg.session)
+			os.Exit(1)
+		}
 	}
 	markdown := report(entries, cfg, piped)
 	if cfg.raw {
@@ -469,6 +477,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.showTokens, "tokens", false, "include token columns")
 	fs.BoolVar(&cfg.showUA, "ua", false, "include user-agent column")
 	fs.BoolVar(&cfg.joinSessions, "join", false, "combine all models used in each session")
+	fs.StringVar(&cfg.session, "session", "", "show only the specified session ID")
 	fs.BoolVar(&cfg.force, "force", false, "refetch data instead of using cached days")
 	fs.BoolVar(&cfg.force, "f", false, "shorthand for --force")
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
@@ -479,6 +488,9 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	}
 	if fs.NArg() != 0 {
 		return cfg, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if cfg.session == "" && flagWasSet(fs, "session") {
+		return cfg, errors.New("--session requires a session ID")
 	}
 	explicit := make(map[string]bool)
 	forEachFlag := func(f *flag.Flag) { explicit[f.Name] = true }
@@ -518,9 +530,15 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	return cfg, nil
 }
 
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
+}
+
 func hasNonForceFlag(explicit map[string]bool) bool {
 	for name := range explicit {
-		if name != "force" && name != "f" {
+		if name != "force" && name != "f" && name != "session" {
 			return true
 		}
 	}
@@ -1111,6 +1129,16 @@ func group(entries []LogEntry, key func(LogEntry) string) map[string]totals {
 		r[groupKey] = t
 	}
 	return r
+}
+
+func filterEntriesForSession(entries []LogEntry, sessionID string) []LogEntry {
+	filtered := make([]LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if metadataValue(entry.Metadata, "x-session-id") == sessionID {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func filterEntriesByTime(entries []LogEntry, start, end time.Time) []LogEntry {

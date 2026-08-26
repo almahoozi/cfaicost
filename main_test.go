@@ -93,6 +93,33 @@ func TestSetDefaultsAcceptsUTC(t *testing.T) {
 	}
 }
 
+func TestSessionFlagDoesNotAffectDefaultsMode(t *testing.T) {
+	cfg, err := parseFlags([]string{"--session=session-a"}, defaultSettings{Daily: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.session != "session-a" || !cfg.daily {
+		t.Fatalf("config = %#v, want session filter with defaults applied", cfg)
+	}
+	if _, err := parseDefaultSettings([]string{"--session=session-a"}); err == nil {
+		t.Fatal("set-defaults accepted --session")
+	}
+	if _, err := parseFlags([]string{"--session="}, defaultSettings{}); err == nil {
+		t.Fatal("empty session ID was accepted")
+	}
+}
+
+func TestFilterEntriesForSession(t *testing.T) {
+	entries := []LogEntry{
+		{ID: "one", Metadata: map[string]string{"x-session-id": "session-a"}},
+		{ID: "two", Metadata: map[string]string{"X-Session-ID": "session-b"}},
+	}
+	got := filterEntriesForSession(entries, "session-b")
+	if len(got) != 1 || got[0].ID != "two" {
+		t.Fatalf("filtered entries = %#v", got)
+	}
+}
+
 func TestFetchLogsPaginatesAndAuthenticates(t *testing.T) {
 	var pages []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
