@@ -52,6 +52,7 @@ go run . set-defaults --mode=base --join --daily
 - `--tokens` adds input and output token columns; they are hidden by default.
 - `--join` combines all provider/models used by each session into one row.
 - `--ua` adds the user-agent column.
+- `--column={label}:{metadata.key}` adds a metadata column to the overview table. The flag is repeatable; grouped rows show their distinct metadata values in sorted order. It can also be saved with `set-defaults`, for example `set-defaults --column=Region:cf.region`.
 - `--raw` writes the Markdown source directly rather than rendering it through Glamour, suitable for redirecting to a file or sharing.
 - Dates and times use the local timezone by default; `--utc` displays them in UTC. It can also be saved with `set-defaults --utc`.
 

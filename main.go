@@ -70,20 +70,47 @@ type sessionModelGroup struct {
 	Model      string
 	Models     map[string]struct{}
 	UserAgents map[string]struct{}
+	Metadata   map[string]map[string]struct{}
 	FirstSeen  time.Time
 	LastSeen   time.Time
 	Totals     totals
 }
 
+type reportColumn struct {
+	Label string `json:"label"`
+	Key   string `json:"key"`
+}
+
+type columnFlags []reportColumn
+
+func (columns *columnFlags) String() string {
+	values := make([]string, len(*columns))
+	for i, column := range *columns {
+		values[i] = column.Label + ":" + column.Key
+	}
+	return strings.Join(values, ",")
+}
+
+func (columns *columnFlags) Set(value string) error {
+	label, key, found := strings.Cut(value, ":")
+	label, key = strings.TrimSpace(label), strings.TrimSpace(key)
+	if !found || label == "" || key == "" {
+		return fmt.Errorf("invalid --column %q; use label:metadata.key", value)
+	}
+	*columns = append(*columns, reportColumn{Label: label, Key: key})
+	return nil
+}
+
 type defaultSettings struct {
-	Mode   string `json:"mode"`
-	Daily  bool   `json:"daily,omitempty"`
-	All    bool   `json:"all,omitempty"`
-	Tokens bool   `json:"tokens,omitempty"`
-	UA     bool   `json:"ua,omitempty"`
-	Join   bool   `json:"join,omitempty"`
-	Raw    bool   `json:"raw,omitempty"`
-	UTC    bool   `json:"utc,omitempty"`
+	Mode    string         `json:"mode"`
+	Columns []reportColumn `json:"columns,omitempty"`
+	Daily   bool           `json:"daily,omitempty"`
+	All     bool           `json:"all,omitempty"`
+	Tokens  bool           `json:"tokens,omitempty"`
+	UA      bool           `json:"ua,omitempty"`
+	Join    bool           `json:"join,omitempty"`
+	Raw     bool           `json:"raw,omitempty"`
+	UTC     bool           `json:"utc,omitempty"`
 }
 
 type savedConfig struct {
@@ -107,6 +134,7 @@ type config struct {
 	force        bool
 	raw          bool
 	utc          bool
+	columns      []reportColumn
 	durationSet  bool
 	fetchLatency time.Duration
 	fetched      bool
@@ -268,6 +296,7 @@ func parseDefaultSettings(args []string) (defaultSettings, error) {
 	fs.BoolVar(&defaults.Join, "join", false, "combine models used in a session")
 	fs.BoolVar(&defaults.Raw, "raw", false, "write raw Markdown")
 	fs.BoolVar(&defaults.UTC, "utc", false, "display dates and times in UTC")
+	fs.Var((*columnFlags)(&defaults.Columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return defaults, err
 	}
@@ -444,6 +473,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.force, "f", false, "shorthand for --force")
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
 	fs.BoolVar(&cfg.utc, "utc", false, "display dates and times in UTC")
+	fs.Var((*columnFlags)(&cfg.columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -518,6 +548,9 @@ func applyDefaults(cfg *config, defaults defaultSettings, explicit map[string]bo
 	}
 	if !explicit["utc"] {
 		cfg.utc = defaults.UTC
+	}
+	if len(defaults.Columns) > 0 {
+		cfg.columns = append(append([]reportColumn(nil), defaults.Columns...), cfg.columns...)
 	}
 }
 
@@ -831,9 +864,9 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 
 	fmt.Fprintln(&out, "\n## Overview")
 	showSession := hasSessionIDs(entries)
-	writeRequestHeader(&out, showSession, cfg.showTokens, cfg.showUA)
+	writeRequestHeader(&out, showSession, cfg.showTokens, cfg.showUA, cfg.columns)
 	for _, group := range sessionModelGroups(entries, cfg.joinSessions) {
-		writeRequestRow(&out, group, showSession, cfg.showTokens, cfg.showUA, location)
+		writeRequestRow(&out, group, showSession, cfg.showTokens, cfg.showUA, cfg.columns, location)
 	}
 
 	fmt.Fprintln(&out, "\n## Totals by model")
@@ -863,7 +896,7 @@ func report(entries []LogEntry, cfg config, piped bool) string {
 	return out.String()
 }
 
-func writeRequestHeader(out *bytes.Buffer, session, tokens, userAgent bool) {
+func writeRequestHeader(out *bytes.Buffer, session, tokens, userAgent bool, columns []reportColumn) {
 	headers := []string{"Period", "Model", "Requests"}
 	align := []string{"---", "---", "---:"}
 	if session {
@@ -872,6 +905,10 @@ func writeRequestHeader(out *bytes.Buffer, session, tokens, userAgent bool) {
 	}
 	if userAgent {
 		headers = append(headers, "UA")
+		align = append(align, "---")
+	}
+	for _, column := range columns {
+		headers = append(headers, cell(column.Label))
 		align = append(align, "---")
 	}
 	if tokens {
@@ -883,13 +920,16 @@ func writeRequestHeader(out *bytes.Buffer, session, tokens, userAgent bool) {
 	fmt.Fprintf(out, "| %s |\n| %s |\n", strings.Join(headers, " | "), strings.Join(align, " | "))
 }
 
-func writeRequestRow(out *bytes.Buffer, group sessionModelGroup, session, tokens, userAgent bool, location *time.Location) {
+func writeRequestRow(out *bytes.Buffer, group sessionModelGroup, session, tokens, userAgent bool, columns []reportColumn, location *time.Location) {
 	values := []string{formatPeriod(group.FirstSeen, group.LastSeen, time.Duration(group.Totals.Duration)*time.Millisecond, location), cell(group.Model), fmt.Sprint(group.Totals.Requests)}
 	if session {
 		values = append([]string{cell(group.SessionID)}, values...)
 	}
 	if userAgent {
 		values = append(values, cell(joinSet(group.UserAgents)))
+	}
+	for _, column := range columns {
+		values = append(values, cell(joinSet(group.Metadata[column.Key])))
 	}
 	if tokens {
 		values = append(values, fmt.Sprint(group.Totals.TokensIn), fmt.Sprint(group.Totals.TokensOut))
@@ -948,9 +988,18 @@ func entryRange(entries []LogEntry) (time.Time, time.Time) {
 func sessionCount(entries []LogEntry) int {
 	sessions := make(map[string]struct{})
 	for _, entry := range entries {
-		sessions[entry.Metadata["x-session-id"]] = struct{}{}
+		sessions[metadataValue(entry.Metadata, "x-session-id")] = struct{}{}
 	}
 	return len(sessions)
+}
+
+func metadataValue(metadata map[string]string, key string) string {
+	for candidate, value := range metadata {
+		if strings.EqualFold(candidate, key) {
+			return value
+		}
+	}
+	return ""
 }
 
 func modelName(entry LogEntry) string { return entry.Provider + "/" + entry.Model }
@@ -958,7 +1007,7 @@ func modelName(entry LogEntry) string { return entry.Provider + "/" + entry.Mode
 func sessionModelGroups(entries []LogEntry, joinSessions bool) []sessionModelGroup {
 	groups := make(map[string]*sessionModelGroup)
 	for _, entry := range entries {
-		sessionID := entry.Metadata["x-session-id"]
+		sessionID := metadataValue(entry.Metadata, "x-session-id")
 		model := modelName(entry)
 		key := sessionID
 		if !joinSessions || sessionID == "" {
@@ -966,12 +1015,21 @@ func sessionModelGroups(entries []LogEntry, joinSessions bool) []sessionModelGro
 		}
 		group := groups[key]
 		if group == nil {
-			group = &sessionModelGroup{SessionID: sessionID, Models: make(map[string]struct{}), UserAgents: make(map[string]struct{}), FirstSeen: entry.CreatedAt, LastSeen: entry.CreatedAt}
+			group = &sessionModelGroup{SessionID: sessionID, Models: make(map[string]struct{}), UserAgents: make(map[string]struct{}), Metadata: make(map[string]map[string]struct{}), FirstSeen: entry.CreatedAt, LastSeen: entry.CreatedAt}
 			groups[key] = group
 		}
 		group.Models[model] = struct{}{}
 		if entry.UserAgent != "" {
 			group.UserAgents[entry.UserAgent] = struct{}{}
+		}
+		for key, value := range entry.Metadata {
+			if value == "" {
+				continue
+			}
+			if group.Metadata[key] == nil {
+				group.Metadata[key] = make(map[string]struct{})
+			}
+			group.Metadata[key][value] = struct{}{}
 		}
 		if entry.CreatedAt.Before(group.FirstSeen) {
 			group.FirstSeen = entry.CreatedAt
@@ -1001,7 +1059,7 @@ func sessionModelGroups(entries []LogEntry, joinSessions bool) []sessionModelGro
 
 func hasSessionIDs(entries []LogEntry) bool {
 	for _, entry := range entries {
-		if entry.Metadata["x-session-id"] != "" {
+		if metadataValue(entry.Metadata, "x-session-id") != "" {
 			return true
 		}
 	}
@@ -1023,7 +1081,7 @@ func sum(entries []LogEntry) totals {
 	sessions := make(map[string]struct{})
 	for _, e := range entries {
 		t.Requests++
-		sessions[e.Metadata["x-session-id"]] = struct{}{}
+		sessions[metadataValue(e.Metadata, "x-session-id")] = struct{}{}
 		t.TokensIn += e.TokensIn
 		t.TokensOut += e.TokensOut
 		t.Cost += e.Cost
@@ -1042,8 +1100,9 @@ func group(entries []LogEntry, key func(LogEntry) string) map[string]totals {
 		if sessions[groupKey] == nil {
 			sessions[groupKey] = make(map[string]struct{})
 		}
-		if _, seen := sessions[groupKey][e.Metadata["x-session-id"]]; !seen {
-			sessions[groupKey][e.Metadata["x-session-id"]] = struct{}{}
+		sessionID := metadataValue(e.Metadata, "x-session-id")
+		if _, seen := sessions[groupKey][sessionID]; !seen {
+			sessions[groupKey][sessionID] = struct{}{}
 			t.Sessions++
 		}
 		t.TokensIn += e.TokensIn

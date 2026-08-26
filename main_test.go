@@ -54,6 +54,35 @@ func TestReportUsesLocalTimeUnlessUTCIsRequested(t *testing.T) {
 	}
 }
 
+func TestColumnsAreAddedFromMetadataAndSavedAsDefaults(t *testing.T) {
+	originalLocation := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = originalLocation }()
+
+	columns, err := parseDefaultSettings([]string{"--column=Region:cf.region", "--column", "Team:team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(columns.Columns) != 2 || columns.Columns[0] != (reportColumn{Label: "Region", Key: "cf.region"}) || columns.Columns[1] != (reportColumn{Label: "Team", Key: "team"}) {
+		t.Fatalf("columns = %#v", columns.Columns)
+	}
+	cfg, err := parseFlags([]string{"--column=Environment:environment"}, defaultSettings{Mode: "base", Columns: columns.Columns})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.columns) != 3 || cfg.columns[2] != (reportColumn{Label: "Environment", Key: "environment"}) {
+		t.Fatalf("columns = %#v", cfg.columns)
+	}
+	entries := []LogEntry{{CreatedAt: mustTime(t, "2026-08-24T00:00:00Z"), Metadata: map[string]string{"cf.region": "us-east", "team": "platform", "environment": "production"}}}
+	output := report(entries, cfg, false)
+	if !strings.Contains(output, "| Period | Model | Requests | Region | Team | Environment | Cost ($) |") || !strings.Contains(output, "| 2026-08-24 00:00:00–00:00:00 (0s) | / | 1 | us-east | platform | production | 0.000000 |") {
+		t.Fatalf("report missing metadata columns:\n%s", output)
+	}
+	if _, err := parseFlags([]string{"--column=invalid"}, defaultSettings{}); err == nil {
+		t.Fatal("invalid column was accepted")
+	}
+}
+
 func TestSetDefaultsAcceptsUTC(t *testing.T) {
 	defaults, err := parseDefaultSettings([]string{"--utc"})
 	if err != nil {
@@ -114,7 +143,7 @@ func TestSessionModelGroupsAggregateRequests(t *testing.T) {
 	entries := []LogEntry{
 		{ID: "two", CreatedAt: mustTime(t, "2026-08-24T02:00:00Z"), Model: "model", Provider: "provider", Duration: 20, TokensIn: 20, TokensOut: 2, Cost: 0.2, Metadata: map[string]string{"x-session-id": "session"}},
 		{ID: "one", CreatedAt: mustTime(t, "2026-08-24T01:00:00Z"), Model: "model", Provider: "provider", Duration: 10, TokensIn: 10, TokensOut: 1, Cost: 0.1, Metadata: map[string]string{"x-session-id": "session"}},
-		{ID: "three", CreatedAt: mustTime(t, "2026-08-24T03:00:00Z"), Model: "other", Metadata: map[string]string{"x-session-id": "session"}},
+		{ID: "three", CreatedAt: mustTime(t, "2026-08-24T03:00:00Z"), Model: "other", Metadata: map[string]string{"X-Session-ID": "session"}},
 	}
 	groups := sessionModelGroups(entries, false)
 	if len(groups) != 2 {
