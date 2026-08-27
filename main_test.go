@@ -228,6 +228,18 @@ func (t rewriteTransport) RoundTrip(request *http.Request) (*http.Response, erro
 	return t.base.RoundTrip(clone)
 }
 
+func TestCellSanitizesMarkdownAndTerminalControls(t *testing.T) {
+	got := cell("foo\n| **fake** \x1b[31mred")
+	if strings.ContainsAny(got, "\r\n") || strings.ContainsRune(got, '\x1b') {
+		t.Fatalf("cell retained unsafe controls: %q", got)
+	}
+	for _, want := range []string{`foo \|`, `\*fake\*`, "[31mred"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("cell(%q) = %q, missing %q", "unsafe input", got, want)
+		}
+	}
+}
+
 func mustTime(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse(time.RFC3339, value)

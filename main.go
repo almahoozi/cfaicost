@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/x/term"
@@ -1084,7 +1085,24 @@ func joinSet(values map[string]struct{}) string {
 	return strings.Join(items, ", ")
 }
 
-func cell(s string) string { return strings.ReplaceAll(s, "|", "\\|") }
+func cell(s string) string {
+	var out strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\r' {
+			out.WriteByte(' ')
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if strings.ContainsRune("\\|*_`[]<>#~!+=", r) {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
 func sum(entries []LogEntry) totals {
 	var t totals
 	sessions := make(map[string]struct{})
