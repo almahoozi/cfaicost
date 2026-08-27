@@ -22,6 +22,12 @@ To replace the token later:
 cfaicost set-token
 ```
 
+To print the installed version:
+
+```sh
+cfaicost version
+```
+
 ## Usage
 
 With no arguments, `cfaicost` fetches the last 30 days and prints a report grouped by session and provider/model:
@@ -43,7 +49,7 @@ For session grouping and filtering to work, your requests must include an `x-ses
 - `--tokens` — show input and output token counts.
 - `--join` — combine all models used in a session into one row.
 - `-u USER` — fetch the report for a different user ID than the configured user.
-- `--session ID` — show only one session.
+- `-s ID` — show only one session.
 - `--ua` — show user-agent values.
 - `--column LABEL:KEY` — add a metadata column, for example `--column Region:cf.region`.
 - `--raw` — print the report's Markdown source.
@@ -80,4 +86,4 @@ This saves settings like:
 }
 ```
 
-With `default` mode, saved options are used only when you run `cfaicost` without other report options. With `base` mode, saved options are used first and can be combined with other options. The `--force` and `--session` options do not disable saved defaults.
+With `default` mode, saved options are used only when you run `cfaicost` without other report options. With `base` mode, saved options are used first and can be combined with other options. The `--force` and `-s` options do not disable saved defaults.

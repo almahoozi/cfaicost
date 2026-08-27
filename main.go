@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,6 +145,14 @@ type config struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		if len(os.Args) > 2 {
+			fmt.Fprintln(os.Stderr, "error: version takes no arguments")
+			os.Exit(2)
+		}
+		printVersion()
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "setup" {
 		if err := runSetup(); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -229,6 +238,36 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Print(rendered)
+}
+
+func printVersion() {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
+		return
+	}
+	version := strings.TrimSpace(info.Main.Version)
+	if version != "" && version != "(devel)" {
+		fmt.Println(version)
+		return
+	}
+
+	revision := ""
+	modified := false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = strings.TrimSpace(setting.Value)
+		case "vcs.modified":
+			modified = strings.EqualFold(strings.TrimSpace(setting.Value), "true")
+		}
+	}
+	if revision == "" {
+		return
+	}
+	if modified {
+		revision += "-dirty"
+	}
+	fmt.Println(revision)
 }
 
 func runSetup() error {
@@ -467,7 +506,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs := flag.NewFlagSet("cfaicost", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: cfaicost [flags] | cfaicost setup | cfaicost set-token")
+		fmt.Fprintln(fs.Output(), "Usage: cfaicost [flags] | cfaicost setup | cfaicost set-token | cfaicost version")
 		fmt.Fprintln(fs.Output(), "Fetch or render a Cloudflare AI Gateway cost report.")
 		fmt.Fprintln(fs.Output(), "\nFlags:")
 		fs.PrintDefaults()
@@ -485,6 +524,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.showUA, "ua", false, "include user-agent column")
 	fs.BoolVar(&cfg.joinSessions, "join", false, "combine all models used in each session")
 	fs.StringVar(&cfg.session, "session", "", "show only the specified session ID")
+	fs.StringVar(&cfg.session, "s", "", "shorthand for --session")
 	fs.BoolVar(&cfg.force, "force", false, "refetch data instead of using cached days")
 	fs.BoolVar(&cfg.force, "f", false, "shorthand for --force")
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
@@ -496,7 +536,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	if fs.NArg() != 0 {
 		return cfg, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
-	if cfg.session == "" && flagWasSet(fs, "session") {
+	if cfg.session == "" && (flagWasSet(fs, "session") || flagWasSet(fs, "s")) {
 		return cfg, errors.New("--session requires a session ID")
 	}
 	if cfg.userID == "" && flagWasSet(fs, "user") {
@@ -548,7 +588,7 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 
 func hasNonForceFlag(explicit map[string]bool) bool {
 	for name := range explicit {
-		if name != "force" && name != "f" && name != "session" && name != "user" && name != "u" {
+		if name != "force" && name != "f" && name != "session" && name != "s" && name != "user" && name != "u" {
 			return true
 		}
 	}

@@ -1,20 +1,18 @@
 .PHONY: all build clean run test install
 
-LDFLAGS=-ldflags "-X main.commit=`git rev-parse HEAD` -X main.ref=`git rev-parse --abbrev-ref HEAD` -X main.version=`git describe --tags --always`"
-
 all: clean test
 
 build:
-	CGO_ENABLED=0 go build $(LDFLAGS) -o ./bin/cfaicost .
+	go build -o ./bin/cfaicost .
 
 clean:
 	rm -rf ./bin
 
 install:
-	go install $(LDFLAGS) .
+	go install .
 
 run:
-	go run $(LDFLAGS) .
+	go run .
 
 test:
 	go test -v ./...

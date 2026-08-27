@@ -107,7 +107,7 @@ func TestUserFlagOverridesConfiguredUser(t *testing.T) {
 }
 
 func TestSessionFlagDoesNotAffectDefaultsMode(t *testing.T) {
-	cfg, err := parseFlags([]string{"--session=session-a"}, defaultSettings{Daily: true})
+	cfg, err := parseFlags([]string{"-s", "session-a"}, defaultSettings{Daily: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestSessionFlagDoesNotAffectDefaultsMode(t *testing.T) {
 	if _, err := parseDefaultSettings([]string{"--session=session-a"}); err == nil {
 		t.Fatal("set-defaults accepted --session")
 	}
-	if _, err := parseFlags([]string{"--session="}, defaultSettings{}); err == nil {
+	if _, err := parseFlags([]string{"-s="}, defaultSettings{}); err == nil {
 		t.Fatal("empty session ID was accepted")
 	}
 }
