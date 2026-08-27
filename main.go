@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -195,7 +196,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", tokenErr)
 			os.Exit(1)
 		}
-		entries, cfg.fetchLatency, err = fetchWithCache(http.DefaultClient, cfg, token)
+		entries, cfg.fetchLatency, err = fetchWithCache(&http.Client{Timeout: time.Minute}, cfg, token)
 		cfg.fetched = true
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -666,19 +667,9 @@ func newCache(cfg config) (dayCache, error) {
 }
 
 func (cache dayCache) path(day time.Time) string {
-	return fmt.Sprintf("%s/%s--%s--%s--%s.json", cache.dir, cachePart(cache.account), cachePart(cache.gateway), cachePart(cache.userID), day.UTC().Format("2006-01-02"))
-}
-
-func cachePart(value string) string {
-	var out strings.Builder
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
-			out.WriteRune(r)
-		} else {
-			out.WriteByte('_')
-		}
-	}
-	return out.String()
+	identity := cache.account + "\x00" + cache.gateway + "\x00" + cache.userID
+	digest := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%s/%x--%s.json", cache.dir, digest, day.UTC().Format("2006-01-02"))
 }
 
 func (cache dayCache) read(day time.Time) ([]LogEntry, bool, error) {
