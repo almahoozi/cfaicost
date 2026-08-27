@@ -93,6 +93,19 @@ func TestSetDefaultsAcceptsUTC(t *testing.T) {
 	}
 }
 
+func TestUserFlagOverridesConfiguredUser(t *testing.T) {
+	cfg, err := parseFlags([]string{"-u", "other-user"}, defaultSettings{Mode: "default", Daily: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.userID != "other-user" || !cfg.daily {
+		t.Fatalf("config = %#v, want user override with defaults applied", cfg)
+	}
+	if _, err := parseFlags([]string{"--user="}, defaultSettings{}); err == nil {
+		t.Fatal("empty user ID was accepted")
+	}
+}
+
 func TestSessionFlagDoesNotAffectDefaultsMode(t *testing.T) {
 	cfg, err := parseFlags([]string{"--session=session-a"}, defaultSettings{Daily: true})
 	if err != nil {

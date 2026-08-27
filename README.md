@@ -42,6 +42,7 @@ For session grouping and filtering to work, your requests must include an `x-ses
 - `--all` — include daily totals for each provider/model. Requires `--daily`.
 - `--tokens` — show input and output token counts.
 - `--join` — combine all models used in a session into one row.
+- `-u USER` — fetch the report for a different user ID than the configured user.
 - `--session ID` — show only one session.
 - `--ua` — show user-agent values.
 - `--column LABEL:KEY` — add a metadata column, for example `--column Region:cf.region`.
@@ -53,6 +54,12 @@ For example:
 
 ```sh
 cfaicost -d 7d --daily --tokens
+```
+
+To fetch a report for another user:
+
+```sh
+cfaicost -u USER_ID
 ```
 
 ## Saved defaults

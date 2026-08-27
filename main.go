@@ -184,7 +184,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	cfg.accountID, cfg.gateway, cfg.userID = settings.AccountID, settings.Gateway, settings.UserID
+	cfg.accountID, cfg.gateway = settings.AccountID, settings.Gateway
+	if cfg.userID == "" {
+		cfg.userID = settings.UserID
+	}
 
 	entries, piped, err := readPipedEntries(cfg.userID)
 	if err != nil {
@@ -474,6 +477,8 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.StringVar(&end, "end", "", "exclusive end time (RFC3339)")
 	fs.StringVar(&duration, "duration", "", "lookback duration (for example 7d or 168h)")
 	fs.StringVar(&duration, "d", "", "shorthand for --duration")
+	fs.StringVar(&cfg.userID, "user", "", "fetch the report for this user ID")
+	fs.StringVar(&cfg.userID, "u", "", "shorthand for --user")
 	fs.BoolVar(&cfg.daily, "daily", false, "include daily usage")
 	fs.BoolVar(&cfg.allDaily, "all", false, "include daily usage tables per model (requires --daily)")
 	fs.BoolVar(&cfg.showTokens, "tokens", false, "include token columns")
@@ -493,6 +498,9 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	}
 	if cfg.session == "" && flagWasSet(fs, "session") {
 		return cfg, errors.New("--session requires a session ID")
+	}
+	if cfg.userID == "" && flagWasSet(fs, "user") {
+		return cfg, errors.New("--user requires a user ID")
 	}
 	explicit := make(map[string]bool)
 	forEachFlag := func(f *flag.Flag) { explicit[f.Name] = true }
@@ -540,7 +548,7 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 
 func hasNonForceFlag(explicit map[string]bool) bool {
 	for name := range explicit {
-		if name != "force" && name != "f" && name != "session" {
+		if name != "force" && name != "f" && name != "session" && name != "user" && name != "u" {
 			return true
 		}
 	}
