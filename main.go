@@ -113,6 +113,7 @@ type defaultSettings struct {
 	UA      bool           `json:"ua,omitempty"`
 	Join    bool           `json:"join,omitempty"`
 	Raw     bool           `json:"raw,omitempty"`
+	JSON    bool           `json:"json,omitempty"`
 	UTC     bool           `json:"utc,omitempty"`
 }
 
@@ -137,6 +138,7 @@ type config struct {
 	session      string
 	force        bool
 	raw          bool
+	json         bool
 	utc          bool
 	columns      []reportColumn
 	durationSet  bool
@@ -165,6 +167,19 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "defaults" {
+		if len(os.Args) > 2 {
+			fmt.Fprintln(os.Stderr, "error: defaults takes no arguments")
+			os.Exit(2)
+		}
+		settings, err := loadConfig()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		fmt.Println(defaultsFlags(settings.Defaults))
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "set-token" {
@@ -228,6 +243,15 @@ func main() {
 		}
 	}
 	markdown := report(entries, cfg, piped)
+	if cfg.json {
+		output, err := reportJSON(entries, cfg, piped)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error encoding report:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(output))
+		return
+	}
 	if cfg.raw {
 		fmt.Print(markdown)
 		return
@@ -347,6 +371,7 @@ func parseDefaultSettings(args []string) (defaultSettings, error) {
 	fs.BoolVar(&defaults.UA, "ua", false, "include user-agent column")
 	fs.BoolVar(&defaults.Join, "join", false, "combine models used in a session")
 	fs.BoolVar(&defaults.Raw, "raw", false, "write raw Markdown")
+	fs.BoolVar(&defaults.JSON, "json", false, "write a single-line JSON report")
 	fs.BoolVar(&defaults.UTC, "utc", false, "display dates and times in UTC")
 	fs.Var((*columnFlags)(&defaults.Columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -506,7 +531,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs := flag.NewFlagSet("cfaicost", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: cfaicost [flags] | cfaicost setup | cfaicost set-token | cfaicost version")
+		fmt.Fprintln(fs.Output(), "Usage: cfaicost [flags] | cfaicost setup | cfaicost set-token | cfaicost defaults | cfaicost version")
 		fmt.Fprintln(fs.Output(), "Fetch or render a Cloudflare AI Gateway cost report.")
 		fmt.Fprintln(fs.Output(), "\nFlags:")
 		fs.PrintDefaults()
@@ -528,6 +553,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.force, "force", false, "refetch data instead of using cached days")
 	fs.BoolVar(&cfg.force, "f", false, "shorthand for --force")
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
+	fs.BoolVar(&cfg.json, "json", false, "write a single-line JSON report")
 	fs.BoolVar(&cfg.utc, "utc", false, "display dates and times in UTC")
 	fs.Var((*columnFlags)(&cfg.columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -613,6 +639,9 @@ func applyDefaults(cfg *config, defaults defaultSettings, explicit map[string]bo
 	}
 	if !explicit["raw"] {
 		cfg.raw = defaults.Raw
+	}
+	if !explicit["json"] {
+		cfg.json = defaults.JSON
 	}
 	if !explicit["utc"] {
 		cfg.utc = defaults.UTC
@@ -894,6 +923,136 @@ func logsURL(cfg config, page int) (string, error) {
 	q.Set("filters", string(encodedFilters))
 	base.RawQuery = q.Encode()
 	return base.String(), nil
+}
+
+type jsonReport struct {
+	User          string           `json:"user"`
+	DateRange     string           `json:"date_range"`
+	Requests      int              `json:"requests"`
+	Sessions      int              `json:"sessions"`
+	FetchLatency  string           `json:"fetch_latency"`
+	TokensIn      *int64           `json:"tokens_in,omitempty"`
+	TokensOut     *int64           `json:"tokens_out,omitempty"`
+	Cost          float64          `json:"cost"`
+	Overview      []map[string]any `json:"overview"`
+	TotalsByModel []map[string]any `json:"totals_by_model"`
+	DailyUsage    []map[string]any `json:"daily_usage,omitempty"`
+	DailyByModel  []map[string]any `json:"daily_usage_by_model,omitempty"`
+}
+
+func reportJSON(entries []LogEntry, cfg config, piped bool) ([]byte, error) {
+	total := sum(entries)
+	location := time.Local
+	if cfg.utc {
+		location = time.UTC
+	}
+	start, end := cfg.start, cfg.end
+	if piped && !cfg.durationSet {
+		start, end = entryRange(entries)
+	}
+	result := jsonReport{User: cfg.userID, DateRange: formatDateRange(start, end, location), Requests: total.Requests, Sessions: total.Sessions, Cost: total.Cost, Overview: []map[string]any{}, TotalsByModel: []map[string]any{}}
+	if cfg.showTokens {
+		result.TokensIn = &total.TokensIn
+		result.TokensOut = &total.TokensOut
+	}
+	if cfg.fetched {
+		result.FetchLatency = cfg.fetchLatency.String()
+	} else {
+		result.FetchLatency = "n/a (stdin)"
+	}
+	for _, group := range sessionModelGroups(entries, cfg.joinSessions) {
+		row := map[string]any{"period": formatPeriod(group.FirstSeen, group.LastSeen, time.Duration(group.Totals.Duration)*time.Millisecond, location), "model": group.Model, "requests": group.Totals.Requests, "cost": group.Totals.Cost}
+		if hasSessionIDs(entries) {
+			row["session"] = group.SessionID
+		}
+		if cfg.showUA {
+			row["ua"] = joinSet(group.UserAgents)
+		}
+		for _, column := range cfg.columns {
+			row[column.Label] = joinSet(group.Metadata[column.Key])
+		}
+		if cfg.showTokens {
+			row["tokens_in"], row["tokens_out"] = group.Totals.TokensIn, group.Totals.TokensOut
+		}
+		result.Overview = append(result.Overview, row)
+	}
+	byModel := group(entries, modelName)
+	if cfg.daily {
+		result.DailyUsage = []map[string]any{}
+	}
+	if cfg.allDaily {
+		result.DailyByModel = []map[string]any{}
+	}
+	appendTotals := func(target *[]map[string]any, name string, value totals) {
+		row := map[string]any{"name": name, "requests": value.Requests, "sessions": value.Sessions, "cost": value.Cost}
+		if cfg.showTokens {
+			row["tokens_in"], row["tokens_out"] = value.TokensIn, value.TokensOut
+		}
+		*target = append(*target, row)
+	}
+	models := make([]string, 0, len(byModel))
+	for model := range byModel {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	for _, model := range models {
+		appendTotals(&result.TotalsByModel, model, byModel[model])
+	}
+	if cfg.daily {
+		for _, date := range sortedGroupKeys(group(entries, func(e LogEntry) string { return e.CreatedAt.In(location).Format("2006-01-02") })) {
+			appendTotals(&result.DailyUsage, date, group(entries, func(e LogEntry) string { return e.CreatedAt.In(location).Format("2006-01-02") })[date])
+		}
+	}
+	if cfg.allDaily {
+		for _, model := range models {
+			days := group(filterModel(entries, model), func(e LogEntry) string { return e.CreatedAt.In(location).Format("2006-01-02") })
+			for _, date := range sortedGroupKeys(days) {
+				appendTotals(&result.DailyByModel, model+"/"+date, days[date])
+			}
+		}
+	}
+	return json.Marshal(result)
+}
+
+func sortedGroupKeys(groups map[string]totals) []string {
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func defaultsFlags(defaults defaultSettings) string {
+	flags := []string{}
+	if defaults.Daily {
+		flags = append(flags, "--daily")
+	}
+	if defaults.All {
+		flags = append(flags, "--all")
+	}
+	if defaults.Tokens {
+		flags = append(flags, "--tokens")
+	}
+	if defaults.UA {
+		flags = append(flags, "--ua")
+	}
+	if defaults.Join {
+		flags = append(flags, "--join")
+	}
+	if defaults.Raw {
+		flags = append(flags, "--raw")
+	}
+	if defaults.JSON {
+		flags = append(flags, "--json")
+	}
+	if defaults.UTC {
+		flags = append(flags, "--utc")
+	}
+	for _, column := range defaults.Columns {
+		flags = append(flags, "--column="+column.Label+":"+column.Key)
+	}
+	return strings.Join(flags, " ")
 }
 
 func report(entries []LogEntry, cfg config, piped bool) string {

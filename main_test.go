@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -80,6 +81,39 @@ func TestColumnsAreAddedFromMetadataAndSavedAsDefaults(t *testing.T) {
 	}
 	if _, err := parseFlags([]string{"--column=invalid"}, defaultSettings{}); err == nil {
 		t.Fatal("invalid column was accepted")
+	}
+}
+
+func TestJSONReportAndRawFlag(t *testing.T) {
+	entries := []LogEntry{{CreatedAt: mustTime(t, "2026-08-24T00:00:00Z"), Provider: "openai", Model: "gpt", Cost: 0.25, Metadata: map[string]string{"x-session-id": "s"}}}
+	cfg := config{userID: "user", start: mustTime(t, "2026-08-24T00:00:00Z"), end: mustTime(t, "2026-08-25T00:00:00Z"), json: true, raw: true}
+	output, err := reportJSON(entries, cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(output), "\\n") || !strings.HasPrefix(string(output), "{") {
+		t.Fatalf("JSON output is not minified: %s", output)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["cost"] != 0.25 {
+		t.Fatalf("JSON cost = %v", decoded["cost"])
+	}
+}
+
+func TestJSONAndDefaultsFlags(t *testing.T) {
+	defaults, err := parseDefaultSettings([]string{"--json", "--daily", "--join"})
+	if err != nil || !defaults.JSON {
+		t.Fatalf("defaults = %#v, err = %v", defaults, err)
+	}
+	cfg, err := parseFlags(nil, defaults)
+	if err != nil || !cfg.json {
+		t.Fatalf("config = %#v, err = %v", cfg, err)
+	}
+	if got := defaultsFlags(defaultSettings{Join: true, Daily: true, JSON: true}); got != "--daily --join --json" {
+		t.Fatalf("defaults flags = %q", got)
 	}
 }
 

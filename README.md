@@ -52,7 +52,8 @@ For session grouping and filtering to work, your requests must include an `x-ses
 - `-s ID` — show only one session.
 - `--ua` — show user-agent values.
 - `--column LABEL:KEY` — add a metadata column, for example `--column Region:cf.region`.
-- `--raw` — print the report's Markdown source.
+- `--raw` — print the report's Markdown source. It has no effect with `--json`.
+- `--json` — print the report as a single-line, minified JSON object. It includes the same summary, overview, model totals, and optional daily sections as the Markdown report.
 - `--utc` — display times in UTC instead of local time.
 - `-f` — refetch data instead of using cached historical days.
 
@@ -66,6 +67,13 @@ To fetch a report for another user:
 
 ```sh
 cfaicost -u USER_ID
+```
+
+Display the currently saved report defaults in copyable CLI form:
+
+```sh
+cfaicost defaults
+# --daily --join
 ```
 
 ## Saved defaults
