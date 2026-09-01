@@ -1236,7 +1236,12 @@ func metadataValue(metadata map[string]string, key string) string {
 	return ""
 }
 
-func modelName(entry LogEntry) string { return entry.Provider + "/" + entry.Model }
+func modelName(entry LogEntry) string {
+	if strings.HasPrefix(entry.Model, entry.Provider+"/") {
+		return entry.Model
+	}
+	return entry.Provider + "/" + entry.Model
+}
 
 func sessionModelGroups(entries []LogEntry, joinSessions bool) []sessionModelGroup {
 	groups := make(map[string]*sessionModelGroup)

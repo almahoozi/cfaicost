@@ -249,6 +249,13 @@ func TestParseLookbackSupportsDays(t *testing.T) {
 	}
 }
 
+func TestModelNameDoesNotDuplicateProviderPrefix(t *testing.T) {
+	entry := LogEntry{Provider: "openai", Model: "openai/gpt-5.6-luna"}
+	if got, want := modelName(entry), "openai/gpt-5.6-luna"; got != want {
+		t.Fatalf("modelName() = %q, want %q", got, want)
+	}
+}
+
 func TestSessionModelGroupsAggregateRequests(t *testing.T) {
 	entries := []LogEntry{
 		{ID: "two", CreatedAt: mustTime(t, "2026-08-24T02:00:00Z"), Model: "model", Provider: "provider", Duration: 20, TokensIn: 20, TokensOut: 2, Cost: 0.2, Metadata: map[string]string{"x-session-id": "session"}},
