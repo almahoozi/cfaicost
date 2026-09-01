@@ -200,6 +200,42 @@ func TestFetchLogsPaginatesAndAuthenticates(t *testing.T) {
 	}
 }
 
+func TestTodayFlagUsesStartOfLocalDay(t *testing.T) {
+	originalLocation := time.Local
+	time.Local = time.FixedZone("UTC-5", -5*60*60)
+	defer func() { time.Local = originalLocation }()
+
+	before := time.Now().UTC()
+	cfg, err := parseFlags([]string{"--today"}, defaultSettings{})
+	after := time.Now().UTC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.today || !cfg.durationSet {
+		t.Fatalf("config = %#v, want today time range", cfg)
+	}
+	localEnd := cfg.end.In(time.Local)
+	wantStart := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, time.Local)
+	if !cfg.start.Equal(wantStart) {
+		t.Fatalf("start = %s, want local start of day %s", cfg.start, wantStart)
+	}
+	if cfg.end.Before(before) || cfg.end.After(after) {
+		t.Fatalf("end = %s, want between %s and %s", cfg.end, before, after)
+	}
+
+	defaults, err := parseDefaultSettings([]string{"--today"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = parseFlags(nil, defaults)
+	if err != nil || !cfg.today || !cfg.durationSet {
+		t.Fatalf("config = %#v, err = %v", cfg, err)
+	}
+	if got := defaultsFlags(defaults); got != "--today" {
+		t.Fatalf("defaults flags = %q", got)
+	}
+}
+
 func TestParseLookbackSupportsDays(t *testing.T) {
 	got, err := parseLookback("7d")
 	if err != nil {

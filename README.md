@@ -43,6 +43,7 @@ For session grouping and filtering to work, your requests must include an `x-ses
 ### Options
 
 - `-d 7d` — look back over a duration. Go durations such as `168h` also work.
+- `--today` — use the range from the start of today in your local timezone until now.
 - `--start TIME --end TIME` — use an explicit RFC3339 time range.
 - `--daily` — include daily totals.
 - `--all` — include daily totals for each provider/model. Requires `--daily`.

@@ -115,6 +115,7 @@ type defaultSettings struct {
 	Raw     bool           `json:"raw,omitempty"`
 	JSON    bool           `json:"json,omitempty"`
 	UTC     bool           `json:"utc,omitempty"`
+	Today   bool           `json:"today,omitempty"`
 }
 
 type savedConfig struct {
@@ -140,6 +141,7 @@ type config struct {
 	raw          bool
 	json         bool
 	utc          bool
+	today        bool
 	columns      []reportColumn
 	durationSet  bool
 	fetchLatency time.Duration
@@ -373,6 +375,7 @@ func parseDefaultSettings(args []string) (defaultSettings, error) {
 	fs.BoolVar(&defaults.Raw, "raw", false, "write raw Markdown")
 	fs.BoolVar(&defaults.JSON, "json", false, "write a single-line JSON report")
 	fs.BoolVar(&defaults.UTC, "utc", false, "display dates and times in UTC")
+	fs.BoolVar(&defaults.Today, "today", false, "use the range from the start of today until now")
 	fs.Var((*columnFlags)(&defaults.Columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return defaults, err
@@ -555,6 +558,7 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 	fs.BoolVar(&cfg.raw, "raw", false, "write raw Markdown instead of Glamour-rendered output")
 	fs.BoolVar(&cfg.json, "json", false, "write a single-line JSON report")
 	fs.BoolVar(&cfg.utc, "utc", false, "display dates and times in UTC")
+	fs.BoolVar(&cfg.today, "today", false, "use the range from the start of today until now")
 	fs.Var((*columnFlags)(&cfg.columns), "column", "add table column as label:metadata.key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
@@ -579,6 +583,13 @@ func parseFlags(args []string, defaults defaultSettings) (config, error) {
 		return cfg, errors.New("--all requires --daily")
 	}
 	now := time.Now().UTC()
+	if cfg.today {
+		localNow := now.In(time.Local)
+		cfg.durationSet = true
+		cfg.start = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+		cfg.end = now
+		return cfg, nil
+	}
 	if duration != "" {
 		cfg.durationSet = true
 		lookback, err := parseLookback(duration)
@@ -645,6 +656,9 @@ func applyDefaults(cfg *config, defaults defaultSettings, explicit map[string]bo
 	}
 	if !explicit["utc"] {
 		cfg.utc = defaults.UTC
+	}
+	if !explicit["today"] {
+		cfg.today = defaults.Today
 	}
 	if len(defaults.Columns) > 0 {
 		cfg.columns = append(append([]reportColumn(nil), defaults.Columns...), cfg.columns...)
@@ -1048,6 +1062,9 @@ func defaultsFlags(defaults defaultSettings) string {
 	}
 	if defaults.UTC {
 		flags = append(flags, "--utc")
+	}
+	if defaults.Today {
+		flags = append(flags, "--today")
 	}
 	for _, column := range defaults.Columns {
 		flags = append(flags, "--column="+column.Label+":"+column.Key)
