@@ -236,6 +236,39 @@ func TestTodayFlagUsesStartOfLocalDay(t *testing.T) {
 	}
 }
 
+func TestYesterdayFlagUsesLocalMidnightRange(t *testing.T) {
+	originalLocation := time.Local
+	time.Local = time.FixedZone("UTC-5", -5*60*60)
+	defer func() { time.Local = originalLocation }()
+
+	cfg, err := parseFlags([]string{"--yesterday"}, defaultSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.yesterday || !cfg.durationSet {
+		t.Fatalf("config = %#v, want yesterday time range", cfg)
+	}
+	localEnd := cfg.end.In(time.Local)
+	if localEnd.Hour() != 0 || localEnd.Minute() != 0 || localEnd.Second() != 0 || localEnd.Nanosecond() != 0 {
+		t.Fatalf("end = %s, want local midnight", cfg.end)
+	}
+	if wantStart := cfg.end.AddDate(0, 0, -1); !cfg.start.Equal(wantStart) {
+		t.Fatalf("start = %s, want previous local midnight %s", cfg.start, wantStart)
+	}
+
+	defaults, err := parseDefaultSettings([]string{"--yesterday"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = parseFlags(nil, defaults)
+	if err != nil || !cfg.yesterday || !cfg.durationSet {
+		t.Fatalf("config = %#v, err = %v", cfg, err)
+	}
+	if got := defaultsFlags(defaults); got != "--yesterday" {
+		t.Fatalf("defaults flags = %q", got)
+	}
+}
+
 func TestParseLookbackSupportsDays(t *testing.T) {
 	got, err := parseLookback("7d")
 	if err != nil {
